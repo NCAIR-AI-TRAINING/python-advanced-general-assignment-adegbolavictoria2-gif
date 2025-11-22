@@ -1,90 +1,78 @@
 from datetime import datetime, timedelta
+import os
 
-# Custom Exception
-\
-class DuplicateVisitorError(Exception):
-    def __init__(self, name, minutes_left=None):
-        if minutes_left is None:
-            message = (
-                f"Visitor '{name}' already signed in last! "
-                f"Duplicate entry is not allowed."
-            )
-        else:
-            message = (
-                f"Visitor '{name}' must wait {minutes_left:.1f} more minutes "
-                f"before signing in again."
-            )
-        super().__init__(message)
+VISITORS_FILE = "visitors.txt"  # File to store visitor data
+WAIT_MINUTES = 5  # Minimum waiting time between visitors
 
-
-# Main Program
-
-def main():
-    filename = "visitors.txt"
-
-    #  Ensure file exists
-    
-    try:
-        with open(filename, "r", encoding="utf-8"):
-            pass
-    except FileNotFoundError:
-        print("visitors.txt not found. Creating a new one...")
-        with open(filename, "w", encoding="utf-8"):
+def ensure_file_exists():
+    # Make sure the file exists; create it if not
+    if not os.path.exists(VISITORS_FILE):
+        with open(VISITORS_FILE, "w", encoding="utf-8") as f:
             pass
 
-    
-    # User Input
-    
-    visitor = input("Enter visitor's name: ").strip()
+def _read_last_entry():
+    # Read the last entry from the file
+    if not os.path.exists(VISITORS_FILE):
+        return None, None
 
+    with open(VISITORS_FILE, "r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    if not lines:
+        return None, None
+
+    last = lines[-1]
+    if "|" not in last:
+        return last, None
+
+    name, ts = last.rsplit("|", 1)  # Split only on last '|'
     try:
-       
-        # Read last entry in file
-        
-        with open(filename, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        dt = datetime.fromisoformat(ts)
+    except Exception:
+        dt = None
 
-        last_visitor = None
-        last_time = None
+    return name, dt
 
-        if lines:
-            last_line = lines[-1].strip().split(" | ")
-            last_visitor = last_line[0]
+def _append_entry(name, when):
+    # Append a new visitor entry with timestamp
+    with open(VISITORS_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{name}|{when.isoformat()}\n")
 
-            # Convert saved timestamp to datetime object
-            last_time = datetime.strptime(
-                last_line[1].strip(),
-                "%Y-%m-%d %H:%M:%S.%f"
-            )
+def log_visitor(name):
+    # Validate name input
+    if not isinstance(name, str) or not name.strip():
+        return False, "Invalid name provided"
 
-       
-        # Duplicate + 5-minute rule
-        if visitor == last_visitor:
-            now = datetime.now()
-            elapsed_time = now - last_time
+    name_clean = name.strip()
+    ensure_file_exists()
+    last_name, last_ts = _read_last_entry()
 
-            minimum_wait = timedelta(minutes=5)
+    # Prevent consecutive duplicate names
+    if last_name is not None and last_name.strip().lower() == name_clean.lower():
+        return False, "Duplicate consecutive visitor not allowed"
 
-            if elapsed_time < minimum_wait:
-                minutes_left = (minimum_wait - elapsed_time).total_seconds() / 60
-                raise DuplicateVisitorError(visitor, minutes_left)
-            else:
-                raise DuplicateVisitorError(visitor)
+    now = datetime.now()
 
-        #  Log visitor with timestamp
+    # Enforce waiting time
+    if last_ts is not None and isinstance(last_ts, datetime):
+        delta = now - last_ts
+        if delta < timedelta(minutes=WAIT_MINUTES):
+            remaining = timedelta(minutes=WAIT_MINUTES) - delta
+            remaining_seconds = int(remaining.total_seconds())
+            mins, secs = divmod(remaining_seconds, 60)
+            return False, f"Please wait {mins} minute(s) {secs} second(s) before next visitor"
 
-        with open(filename, "a", encoding="utf-8") as f:
-            f.write(f"{visitor} | {datetime.now()}\n")
+    _append_entry(name_clean, now)
+    return True, "Visitor successfully logged"
 
-        print("Visitor added successfully!")
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) < 2:
+        print('Usage: python main.py "Visitor Name"')
+        sys.exit(1)
 
-   
-    #  Error Handling
-    except DuplicateVisitorError as e:
-        print("Error:", e)
-    except Exception as e:
-        print("An unexpected error occurred:", e)
-
-
-# Run the program
-main()
+    # Combine all command-line arguments to support multi-word names
+    name = " ".join(sys.argv[1:])
+    success, message = log_visitor(name)
+    print(message)
+    sys.exit(0 if success else 2)
