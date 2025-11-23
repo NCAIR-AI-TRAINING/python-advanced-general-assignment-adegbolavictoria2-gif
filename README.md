@@ -44,7 +44,6 @@ You **must** use at least 2 branches.
 
 ### Step 1 — Work on the main branch
 Implement duplicate‑visitor logic.
-
 ```
 git add .
 git commit -m "duplicate visitor done"
